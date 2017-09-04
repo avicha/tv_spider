@@ -54,7 +54,7 @@ class YoukuSpider(scrapy.Spider):
             tv = {
                 'name': name,
                 'folder': thumb_src,
-                'part_count': part_count,
+                'part_count': int(part_count),
                 'actors': actors,
                 'resource': {
                     'source': 1,
