@@ -25,34 +25,32 @@ class YoukuSpider(scrapy.Spider):
             yield response.follow(href, callback=self.parse_tv_list)
         for li in response.css('.box-series .yk-col4'):
             self.tv_num = self.tv_num + 1
-            video_id = li.css('.p-thumb a').xpath('./@href').re_first(r'id_(\S+)\.html')
+            video_id = li.css('.p-thumb a').xpath('./@href').re_first(r'v\.youku\.com\/v_show\/id_(\S+)\.html')
             thumb_src = li.css('.quic::attr(src)').extract_first()
             name = li.css('.p-thumb a::attr(title)').extract_first()
             info = li.css('.status span span').xpath('./text()').extract_first()
             if info == u'预告':
                 status = 3
                 part_count = 0
-            elif re.match(ur'(\d+)集全', info):
-                status = 1
-                part_count = re.match(ur'(\d+)集全', info).group(1)
             elif re.match(ur'更新至(\d+)集', info):
                 status = 2
                 part_count = re.match(ur'更新至(\d+)集', info).group(1)
+            elif re.match(ur'(\d+)集全', info):
+                status = 1
+                part_count = re.match(ur'(\d+)集全', info).group(1)
             else:
                 status = 0
                 part_count = 0
+            if not video_id:
+                status = -1
             is_free = False if li.css('.vip-free').extract_first() else True
             actors = []
             for x in li.css('.actor a'):
                 actors.append(x.xpath('./@title').extract_first())
-            play_count_text = re.match(ur'(\S+)次播放', li.css('.info-list li:last-child::text').extract_first()).group(1).replace(',', '')
-            if re.match(ur'(\S+)万', play_count_text):
-                play_count = int(float(re.match(ur'(\S+)万', play_count_text).group(1)) * 10000)
-            else:
-                play_count = int(play_count_text)
-            print video_id, thumb_src, name, info, is_free, actors, play_count_text
+            print video_id, thumb_src, name, info, is_free, actors
             tv = {
                 'name': name,
+                'category': 'tv',
                 'folder': thumb_src,
                 'part_count': int(part_count),
                 'actors': actors,
@@ -60,8 +58,7 @@ class YoukuSpider(scrapy.Spider):
                     'source': 1,
                     'id': video_id,
                     'status': status,
-                    'is_free': is_free,
-                    'play_count': play_count
+                    'is_free': is_free
                 }
             }
             yield tv
