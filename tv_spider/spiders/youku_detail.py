@@ -9,7 +9,7 @@ class YoukuDetailSpider(scrapy.Spider):
     name = 'youku_detail'
     custom_settings = {
         'ITEM_PIPELINES': {'tv_spider.pipelines.TvDetailSpiderPipeline': 300},
-        'DOWNLOAD_DELAY': 0.1
+        'DOWNLOAD_DELAY': 0.01
     }
     allowed_domains = ['youku.com']
 
