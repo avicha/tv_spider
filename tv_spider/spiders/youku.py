@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 import scrapy
 import re
-from store import client, db
+from tv_spider.spiders.store import client, db
+import tv_spider.const.video_source as video_source
+import tv_spider.const.tv_status as tv_status
 
 
 class YoukuSpider(scrapy.Spider):
@@ -30,35 +32,30 @@ class YoukuSpider(scrapy.Spider):
             name = li.css('.p-thumb a::attr(title)').extract_first()
             info = li.css('.status span span').xpath('./text()').extract_first()
             if info == u'预告':
-                status = 3
-                part_count = 0
+                status = tv_status.PREVIEW
             elif re.match(ur'更新至(\d+)集', info):
-                status = 2
-                part_count = re.match(ur'更新至(\d+)集', info).group(1)
+                status = tv_status.UPDATING
             elif re.match(ur'(\d+)集全', info):
-                status = 1
-                part_count = re.match(ur'(\d+)集全', info).group(1)
+                status = tv_status.COMPLETED
             else:
-                status = 0
-                part_count = 0
+                status = tv_status.UNKNOWN
             if not video_id:
-                status = -1
-            is_free = False if li.css('.vip-free').extract_first() else True
+                status = tv_status.UNAVAILABLE
+            is_vip = True if li.css('.vip-free').extract_first() else False
             actors = []
             for x in li.css('.actor a'):
                 actors.append(x.xpath('./@title').extract_first())
-            print video_id, thumb_src, name, info, is_free, actors
+            print(video_id, thumb_src, name, info, is_vip, actors)
             tv = {
                 'name': name,
                 'category': 'tv',
-                'folder': thumb_src,
-                'part_count': int(part_count),
-                'actors': actors,
                 'resource': {
-                    'source': 1,
+                    'source': video_source.YOUKU,
                     'id': video_id,
+                    'folder': thumb_src,
+                    'actors': actors,
                     'status': status,
-                    'is_free': is_free
+                    'is_vip': is_vip
                 }
             }
             yield tv

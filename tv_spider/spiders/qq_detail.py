@@ -2,8 +2,10 @@
 import scrapy
 import re
 import json
-from store import client, db
-from bson.objectid import ObjectId
+from tv_spider.spiders.store import client, db
+import tv_spider.const.video_source as video_source
+import tv_spider.const.tv_status as tv_status
+import tv_spider.const.video_status as video_status
 
 
 class QQDetailSpider(scrapy.Spider):
@@ -17,10 +19,12 @@ class QQDetailSpider(scrapy.Spider):
     def start_requests(self):
         self.client = client
         self.db = db
-        q = db.videos.find({'resources': {'$elemMatch': {'source': 2, 'has_crawl_detail': False, 'status': {'$not': {'$eq': -1}}}}})
+        self.crawl_detail_num = 0
+        self.crawl_parts_num = 0
+        q = db.videos.find({'resources': {'$elemMatch': {'source': video_source.QQ, 'has_crawl_detail': False, 'status': {'$not': {'$eq': tv_status.UNAVAILABLE}}}}})
         for o in q:
-            resource = filter(lambda x: x.get('source') == 2, o.get('resources'))[0]
-            yield scrapy.Request('https://v.qq.com/x/cover/%s.html' % resource.get('id'), self.parse_tv_detail, meta={'extra': resource, 'handle_httpstatus_all': True})
+            resource = filter(lambda x: x.get('source') == video_source.QQ, o.get('resources'))[0]
+            yield scrapy.Request('https://v.qq.com/x/cover/%s.html' % resource.get('id'), self.parse_tv_detail, meta={'resource': resource, 'handle_httpstatus_all': True})
 
     def parse_tv_detail(self, response):
         if response.status >= 200 and response.status < 300:
@@ -30,34 +34,48 @@ class QQDetailSpider(scrapy.Spider):
                 alias = cover_info.get('alias')
                 # 发布日期
                 publish_date = cover_info.get('publish_date')
+                # 最新一集
+                current_part = int(cover_info.get('current_num'))
+                # 总集数
+                part_count = int(cover_info.get('episode_all'))
+                # 播放备注
+                update_notify_desc = cover_info.get('update_notify_desc')
                 # 得分
                 score = float(cover_info.get('score').get('score')) if cover_info.get('score') else 0
                 # 演员表
-                actors = []
+                actors = cover_info.get('leading_actor')
                 # 详细演职员
                 actors_detail = []
-                for li in response.css('._starlist .item'):
-                    name = li.css('.name::text').extract_first()
-                    avatar = li.css('.img img::attr(r-lazyload)').extract_first()
-                    if avatar and not ('http:' in avatar):
-                        avatar = 'http:' + avatar
-                    role = li.css('.txt::text').extract_first()
-                    actors.append(name)
-                    actors_detail.append({
-                        'name': name,
-                        'avatar': avatar,
-                        'role': role
-                    })
+                if len(response.css('#block-T .mod-media')):
+                    for li in response.css('#block-T .mod-media'):
+                        name = li.css('.media_title a::text').extract_first()
+                        avatar = li.css('.mod-media_hd img::attr(r-lazyload)').extract_first()
+                        role = li.css('.media_des em:not(".mr5")::text').extract_first()
+                        actors_detail.append({
+                            'name': name,
+                            'avatar': avatar,
+                            'role': role
+                        })
+                if len(response.css('._starlist .item')):
+                    for item in response.css('._starlist .item'):
+                        name = item.css('.name::text').extract_first()
+                        avatar = item.css('.img img::attr(r-lazyload)').extract_first()
+                        if avatar and not ('http:' in avatar):
+                            avatar = 'http:' + avatar
+                        role = item.css('.txt::text').extract_first()
+                        actors_detail.append({
+                            'name': name,
+                            'avatar': avatar,
+                            'role': role
+                        })
                 # 导演
-                director = ','.join(cover_info.get('director') or [])
+                director = ','.join(cover_info.get('director'))
                 # 地区
-                district = cover_info.get('area_name')
+                region = cover_info.get('area_name')
                 # 类型
                 types = cover_info.get('subtype')
                 # 播放数
                 play_count = cover_info.get('view_all_count')
-                # 评论数
-                comment_count = 0
                 # 简介
                 desc = cover_info.get('description')
                 # 分集详情id，https://node.video.qq.com/x/api/cut?ids=6kad60dktxie6cp_2_1
@@ -69,41 +87,66 @@ class QQDetailSpider(scrapy.Spider):
                     'video_id': x.get('V'),
                     'thumb': None,
                     'duration': 0,
-                    'status': 3 if x.get('F') == 0 else (2 if x.get('F') == 7 else (1 if x.get('F') == 2 else 0)),  # 1：免费看整集，2：VIP，3：预告片
+                    'status': video_status.PREVIEW if x.get('F') == 0 else (video_status.VIP if x.get('F') == 7 else (video_status.FREE if x.get('F') == 2 else video_status.UNKNOWN)),
+                    'brief': None,
                     'desc': ''
                 }, cover_info.get('nomal_ids'))
-                data = {}
-                data.update(response.meta.get('extra'))
-                data.update({
+                resource = response.meta.get('resource')
+                resource.update({
                     'has_crawl_detail': True,
                     'alias': alias,
                     'publish_date': publish_date,
                     'score': score,
                     'actors': actors,
+                    'actors_detail': actors_detail,
                     'director': director,
-                    'district': district,
+                    'region': region,
                     'types': types,
                     'play_count': play_count,
-                    'comment_count': comment_count,
                     'desc': desc,
-                    'actors_detail': actors_detail,
-                    'parts_show_id': parts_show_id,
-                    'parts': parts
+                    'current_part': current_part,
+                    'part_count': part_count,
+                    'update_notify_desc': update_notify_desc
                 })
-                return data
+                response.meta.update({'parts': parts})
+                self.crawl_detail_num = self.crawl_detail_num + 1
+                if parts_show_id:
+                    yield scrapy.Request('https://node.video.qq.com/x/api/cut?ids=%s' % parts_show_id, self.parse_tv_parts, meta=response.meta)
+                else:
+                    yield resource
             except Exception as e:
-                data = {}
-                data.update(response.meta.get('extra'))
-                data.update({
+                resource = response.meta.get('resource')
+                resource.update({
                     'has_crawl_detail': True,
-                    'status': -1
+                    'status': tv_status.UNAVAILABLE
                 })
-                return data
+                yield resource
         else:
-            data = {}
-            data.update(response.meta.get('extra'))
-            data.update({
+            resource = response.meta.get('resource')
+            resource.update({
                 'has_crawl_detail': True,
-                'status': -1
+                'status': tv_status.UNAVAILABLE
             })
-            return data
+            yield resource
+
+    def parse_tv_parts(self, response):
+        resource = response.meta.get('resource')
+        parts = response.meta.get('parts')
+        result = json.loads(response.text)
+        self.crawl_parts_num = self.crawl_parts_num + 1
+        for o in result:
+            part_id = o.get('id')
+            desc = o.get('jsonData', {}).get('episodes_desc')
+            part = filter(lambda x: x.get('id') == part_id, parts)
+            if len(part):
+                part = part[0]
+                part.update({
+                    'desc': desc
+                })
+                del part['id']
+        resource.update({'parts': parts})
+        return resource
+
+    def closed(self, reason):
+        self.client.close()
+        self.logger.info('spider closed because %s,detail number %s,parts number %s', reason, self.crawl_detail_num, self.crawl_parts_num)

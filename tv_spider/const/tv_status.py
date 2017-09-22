@@ -1,0 +1,7 @@
+# -*- coding: utf-8 -*-
+
+UNAVAILABLE = -1
+UNKNOWN = 0
+COMPLETED = 1
+UPDATING = 2
+PREVIEW = 3
