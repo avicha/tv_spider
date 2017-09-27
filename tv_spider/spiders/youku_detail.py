@@ -44,7 +44,13 @@ class YoukuDetailSpider(scrapy.Spider):
             response.meta.update({'parts': parts})
             yield scrapy.Request('http:%s' % desc_link, self.parse_tv_detail, meta=response.meta)
         else:
-            self.error.append('not ok %s' % response.url)
+            self.error.append('not ok %s, status code: %s' % (response.url, response.status))
+            resource = response.meta.get('resource')
+            resource.update({
+                'has_crawl_detail': True,
+                'status': tv_status.UNAVAILABLE
+            })
+            yield resource
 
     def parse_tv_detail(self, response):
         try:
