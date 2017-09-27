@@ -12,7 +12,7 @@ class IqiyiSpider(scrapy.Spider):
     name = 'iqiyi'
     custom_settings = {
         'ITEM_PIPELINES': {'tv_spider.pipelines.TvSpiderPipeline': 300},
-        'DOWNLOAD_DELAY': 0
+        'DOWNLOAD_DELAY': 0.01
     }
     allowed_domains = ['iqiyi.com']
 
@@ -27,8 +27,9 @@ class IqiyiSpider(scrapy.Spider):
 
     def parse_tv_list(self, response):
         result = json.loads(response.text)
-        if result.get('code') == 'A00000':
-            docinfos = result.get('data').get('docinfos')
+        code = result.get('code')
+        docinfos = result.get('data').get('docinfos')
+        if code == 'A00000' and len(docinfos):
             for o in docinfos:
                 self.tv_num = self.tv_num + 1
                 albumDocInfo = o.get('albumDocInfo')
@@ -76,7 +77,6 @@ class IqiyiSpider(scrapy.Spider):
                 # 分集剧情需要id
                 parts_show_id = albumDocInfo.get('albumId')
                 # 分集剧情，http://mixer.video.iqiyi.com/jp/mixin/videos/avlist?albumId=213681201&page=1&size=100
-
                 tv = {
                     'name': name,
                     'category': 'tv',
@@ -102,7 +102,10 @@ class IqiyiSpider(scrapy.Spider):
                         'is_vip': is_vip
                     }
                 }
-                yield scrapy.Request('http://mixer.video.iqiyi.com/jp/mixin/videos/avlist?albumId=%s&page=1&size=200' % parts_show_id, self.parse_tv_parts, meta={'tv': tv})
+                if parts_show_id:
+                    yield scrapy.Request('http://mixer.video.iqiyi.com/jp/mixin/videos/avlist?albumId=%s&page=1&size=200' % parts_show_id, self.parse_tv_parts, meta={'tv': tv})
+                else:
+                    yield tv
             if self.page_num * self.page_size < result.get('data').get('result_num'):
                 self.page_num = self.page_num + 1
                 yield scrapy.Request('http://search.video.iqiyi.com/o?pageNum=%s&pageSize=%s&mode=11&ctgName=%s&type=list&if=html5&pos=1&access_play_control_platform=15&site=iqiyi' % (self.page_num, self.page_size, self.cat_name), self.parse_tv_list)

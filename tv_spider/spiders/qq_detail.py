@@ -19,6 +19,7 @@ class QQDetailSpider(scrapy.Spider):
     def start_requests(self):
         self.client = client
         self.db = db
+        self.error = []
         self.crawl_detail_num = 0
         self.crawl_parts_num = 0
         q = db.videos.find({'resources': {'$elemMatch': {'source': video_source.QQ, 'has_crawl_detail': False, 'status': {'$not': {'$eq': tv_status.UNAVAILABLE}}}}})
@@ -35,9 +36,9 @@ class QQDetailSpider(scrapy.Spider):
                 # 发布日期
                 publish_date = cover_info.get('publish_date')
                 # 最新一集
-                current_part = int(cover_info.get('current_num'))
+                current_part = int(cover_info.get('current_num')) if cover_info.get('current_num') else 0
                 # 总集数
-                part_count = int(cover_info.get('episode_all'))
+                part_count = int(re.match(r'\d+', cover_info.get('episode_all')).group(0)) if cover_info.get('episode_all') else 0
                 # 播放备注
                 update_notify_desc = cover_info.get('update_notify_desc')
                 # 得分
@@ -69,7 +70,7 @@ class QQDetailSpider(scrapy.Spider):
                             'role': role
                         })
                 # 导演
-                director = ','.join(cover_info.get('director'))
+                director = ','.join(cover_info.get('director')) if cover_info.get('director') else None
                 # 地区
                 region = cover_info.get('area_name')
                 # 类型
@@ -87,7 +88,7 @@ class QQDetailSpider(scrapy.Spider):
                     'video_id': x.get('V'),
                     'thumb': None,
                     'duration': 0,
-                    'status': video_status.PREVIEW if x.get('F') == 0 else (video_status.VIP if x.get('F') == 7 else (video_status.FREE if x.get('F') == 2 else video_status.UNKNOWN)),
+                    'status': video_status.PREVIEW if x.get('F') == 0 else (video_status.VIP if (x.get('F') == 7 or x.get('F') == 5) else (video_status.FREE if x.get('F') == 2 else video_status.UNKNOWN)),
                     'brief': None,
                     'desc': ''
                 }, cover_info.get('nomal_ids'))
@@ -113,8 +114,12 @@ class QQDetailSpider(scrapy.Spider):
                 if parts_show_id:
                     yield scrapy.Request('https://node.video.qq.com/x/api/cut?ids=%s' % parts_show_id, self.parse_tv_parts, meta=response.meta)
                 else:
+                    for part in parts:
+                        del part['id']
+                    resource.update({'parts': parts})
                     yield resource
             except Exception as e:
+                self.error.append("Exception %s" % response.url)
                 resource = response.meta.get('resource')
                 resource.update({
                     'has_crawl_detail': True,
@@ -122,12 +127,7 @@ class QQDetailSpider(scrapy.Spider):
                 })
                 yield resource
         else:
-            resource = response.meta.get('resource')
-            resource.update({
-                'has_crawl_detail': True,
-                'status': tv_status.UNAVAILABLE
-            })
-            yield resource
+            self.error.append("not ok %s" % response.url)
 
     def parse_tv_parts(self, response):
         resource = response.meta.get('resource')
@@ -150,3 +150,4 @@ class QQDetailSpider(scrapy.Spider):
     def closed(self, reason):
         self.client.close()
         self.logger.info('spider closed because %s,detail number %s,parts number %s', reason, self.crawl_detail_num, self.crawl_parts_num)
+        self.logger.info(self.error)

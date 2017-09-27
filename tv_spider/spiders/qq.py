@@ -49,7 +49,6 @@ class QQSpider(scrapy.Spider):
             actors = []
             for x in li.css('.figure_desc a'):
                 actors.append(x.xpath('./@title').extract_first())
-            print(video_id, thumb_src, name, info, is_vip, actors)
             tv = {
                 'name': name,
                 'category': 'tv',
