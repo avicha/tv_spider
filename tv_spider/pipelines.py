@@ -6,14 +6,85 @@
 # See: http://doc.scrapy.org/en/latest/topics/item-pipeline.html
 import time
 import sys
+import re
 from scrapy.exceptions import DropItem
 from bson.objectid import ObjectId
+import tv_spider.const.tags as tags_enum
+
+
+def format_resource(resource):
+    publish_date = resource.get('publish_date')
+    if (not publish_date) or (not re.match(r'^\d{4}-\d{2}-\d{2}$', publish_date)):
+        resource.update({'publish_date': None})
+    region = resource.get('region')
+    if region == '' or region == 'unknown':
+        resource.update({'region': None})
+    if resource.get('desc') == None:
+        resource.update({'desc': ''})
+    if resource.get('director') == '':
+        resource.update({'director': None})
+    if resource.get('update_notify_desc') == '':
+        resource.update({'update_notify_desc': None})
+    return resource
+
+
+def get_tags(resource):
+    tags = []
+    for tv_type in resource.get('types', []):
+        if tv_type == u'剧情' or tv_type == u'商战剧':
+            tags.append(tags_enum.Types.JVQING)
+        elif tv_type == u'自制剧' or tv_type == u'土豆出品' or tv_type == u'优酷出品' or tv_type == u'原创栏目':
+            tags.append(tags_enum.Types.YUANCHUANG)
+        elif tv_type == u'爱情' or tv_type == u'言情' or tv_type == u'青春剧' or tv_type == u'偶像':
+            tags.append(tags_enum.Types.QINGCHUN)
+        elif tv_type == u'网络剧' or tv_type == u'网剧' or tv_type == u'超级网剧':
+            tags.append(tags_enum.Types.WANGJV)
+        elif tv_type == u'犯罪' or tv_type == u'刑侦' or tv_type == u'警匪' or tv_type == u'悬疑':
+            tags.append(tags_enum.Types.XUANYI)
+        elif tv_type == u'恐怖' or tv_type == u'惊悚' or tv_type == u'科幻':
+            tags.append(tags_enum.Types.KEHUAN)
+        elif tv_type == u'喜剧' or tv_type == u'搞笑':
+            tags.append(tags_enum.Types.XIJV)
+        elif tv_type == u'都市' or tv_type == u'家庭':
+            tags.append(tags_enum.Types.DUSHI)
+        elif tv_type == u'战争' or tv_type == u'谍战' or tv_type == u'军事':
+            tags.append(tags_enum.Types.ZHANZHENG)
+        elif tv_type == u'历史' or tv_type == u'古装':
+            tags.append(tags_enum.Types.LISHI)
+        elif tv_type == u'奇幻' or tv_type == u'神话' or tv_type == u'穿越剧' or tv_type == u'魔幻':
+            tags.append(tags_enum.Types.XUANHUAN)
+        elif tv_type == u'武侠':
+            tags.append(tags_enum.Types.WUXIA)
+        elif tv_type == u'儿童':
+            tags.append(tags_enum.Types.ERTONG)
+        else:
+            tags.append(tags_enum.Types.QITA)
+    region = resource.get('region')
+    if region:
+        if region == u'内地' or region == u'大陆' or region == u'国内':
+            tags.append(tags_enum.Region.NEIDI)
+        elif region == u'香港':
+            tags.append(tags_enum.Region.XIANGGANG)
+        elif region == u'台湾':
+            tags.append(tags_enum.Region.TAIWAN)
+        elif region == u'美国' or region == u'美剧':
+            tags.append(tags_enum.Region.MEIGUO)
+        elif region == u'英国':
+            tags.append(tags_enum.Region.YINGGUO)
+        elif region == u'韩国':
+            tags.append(tags_enum.Region.HANGUO)
+        elif region == u'日本':
+            tags.append(tags_enum.Region.RIBEN)
+        else:
+            tags.append(tags_enum.Region.QITA)
+    return tags
 
 
 class TvSpiderPipeline(object):
 
     def process_item(self, item, spider):
-        resource = item.get('resource')
+        resource = format_resource(item.get('resource'))
+        tags = get_tags(resource)
         video_id = resource.get('id')
         source = resource.get('source')
         parts = item.get('parts')
@@ -38,7 +109,7 @@ class TvSpiderPipeline(object):
             spider.db.video_parts.update_one({'id': video_id, 'source': source}, {'$set': {'parts': parts}}, upsert=True)
         if not is_exists:
             resource.update({'created_at': now, 'updated_at': now, 'deleted_at': None, 'has_crawl_detail': has_crawl_detail})
-            item.update({'resources': [resource]})
+            item.update({'resources': [resource], 'tags': tags})
             del item['resource']
             spider.db.videos.insert_one(item)
             return item
@@ -49,21 +120,23 @@ class TvSpiderPipeline(object):
                 exist_resource = exist_resource[0]
                 resource.update({'updated_at': now})
                 exist_resource.update(resource)
-                spider.db.videos.update_one({'_id': ObjectId(exists_tv.get('_id')), 'resources.source': resource.get('source')}, {'$set': {'resources.$': exist_resource}})
+                spider.db.videos.update_one({'_id': ObjectId(exists_tv.get('_id')), 'resources.source': resource.get('source')}, {'$set': {'resources.$': exist_resource}, '$addToSet': {'tags': {'$each': tags}}})
             else:
                 resource.update({'created_at': now, 'updated_at': now, 'deleted_at': None, 'has_crawl_detail': has_crawl_detail})
-                spider.db.videos.update_one({'_id': ObjectId(exists_tv.get('_id'))}, {'$addToSet': {'resources': resource}})
+                spider.db.videos.update_one({'_id': ObjectId(exists_tv.get('_id'))}, {'$addToSet': {'resources': resource, 'tags': {'$each': tags}}})
             return item
 
 
 class TvDetailSpiderPipeline(object):
 
-    def process_item(self, item, spider):
+    def process_item(self, resource, spider):
+        item = format_resource(resource)
+        tags = get_tags(item)
         source = item.get('source')
         video_id = item.get('id')
         parts = item.get('parts')
         if parts:
             del item['parts']
             spider.db.video_parts.update_one({'id': video_id, 'source': source}, {'$set': {'parts': parts}}, upsert=True)
-        spider.db.videos.update_one({'resources': {'$elemMatch': {'source': source, 'id': video_id}}}, {'$set': {'resources.$': item}})
+        spider.db.videos.update_one({'resources': {'$elemMatch': {'source': source, 'id': video_id}}}, {'$set': {'resources.$': item}, '$addToSet': {'tags': {'$each': tags}}})
         return item

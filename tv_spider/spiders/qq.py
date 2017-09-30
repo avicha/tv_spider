@@ -40,6 +40,7 @@ class QQSpider(scrapy.Spider):
                 elif re.match(ur'全(\d+)集', info):
                     status = tv_status.COMPLETED
                 else:
+                    # 花絮合集预告之类
                     status = tv_status.UNKNOWN
             else:
                 status = tv_status.UNKNOWN
