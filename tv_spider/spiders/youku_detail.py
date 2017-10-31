@@ -138,7 +138,6 @@ class YoukuDetailSpider(scrapy.Spider):
                     duration = '00:'+duration
                 time_parts = duration.split(':')
                 duration = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
-                print(duration)
                 desc = item.select_one('.item-intro').string
                 part = filter(lambda x: x.get('video_id') == video_id, parts)
                 if len(part):
