@@ -132,6 +132,13 @@ class YoukuDetailSpider(scrapy.Spider):
                 video_id = re.match(ur'[\s\S]+id_(.*)\.html', item.select_one('.p-thumb a').get('href')).group(1)
                 thumb = item.select_one('.p-thumb img').get('src')
                 duration = item.select_one('.p-time span').string
+                if len(duration.split(':')) == 1:
+                    duration = '00:00:'+duration
+                elif len(duration.split(':')) == 2:
+                    duration = '00:'+duration
+                time_parts = duration.split(':')
+                duration = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
+                print(duration)
                 desc = item.select_one('.item-intro').string
                 part = filter(lambda x: x.get('video_id') == video_id, parts)
                 if len(part):
