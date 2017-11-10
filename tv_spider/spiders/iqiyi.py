@@ -116,9 +116,9 @@ class IqiyiSpider(scrapy.Spider):
         result = json.loads(re.match(r'var\stvInfoJs=(\{.*\})', response.text).group(1))
         for index, item in enumerate(result.get('mixinVideos')):
             parts.append({
-                'index': index,
+                'index': index + 1,
                 'video_id': re.match(r'http:\/\/www\.iqiyi\.com\/(\S+)\.html', item.get('url')).group(1),
-                'thumb': item.get('imageUrl'),
+                'thumb': item.get('qualityImageUrl') or item.get('videoImageUrl'),
                 'duration': item.get('duration'),
                 'status': video_status.PREVIEW if item.get('solo') else (video_status.VIP if item.get('isPurchase') else video_status.FREE),
                 'brief': item.get('subtitle'),
