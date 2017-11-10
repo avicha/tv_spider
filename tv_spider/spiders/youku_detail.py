@@ -129,7 +129,6 @@ class YoukuDetailSpider(scrapy.Spider):
         parts_show_id = response.meta.get('parts_show_id')
         result = json.loads(re.match(ur'[\s\S]+callback\((.*)\)', response.text).group(1))
         if not result.get('error'):
-            self.crawl_parts_num = self.crawl_parts_num + 1
             html = result.get('html')
             soup = BeautifulSoup(html, 'html5lib')
             for index, item in enumerate(soup.select('.p-drama-list .p-item')):
@@ -155,6 +154,7 @@ class YoukuDetailSpider(scrapy.Spider):
             response.meta.update({'reload':  _reload})
             yield scrapy.Request('http://list.youku.com/show/point?id=%s&stage=reload_%s&callback=callback' % (parts_show_id, _reload), self.parse_tv_parts, meta=response.meta)
         else:
+            self.crawl_parts_num = self.crawl_parts_num + 1
             self.error.append('parts error: %s' % response.url)
             resource.update({'parts': parts})
             yield resource
