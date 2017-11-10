@@ -116,7 +116,7 @@ class YoukuDetailSpider(scrapy.Spider):
             })
             # 分集详情id，http://list.youku.com/show/module?id=15126&tab=point&callback=callback
             parts_show_id = re.match(r'[\s\S]+showid:"(\S+?)"', response.text).group(1)
-            response.meta.update({'reload': 1})
+            response.meta.update({'reload': 1, 'parts_show_id': parts_show_id})
             yield scrapy.Request('http://list.youku.com/show/point?id=%s&stage=reload_1&callback=callback' % parts_show_id, self.parse_tv_parts, meta=response.meta)
         except Exception as e:
             self.error.append('detail error: %s' % response.url)
@@ -124,6 +124,7 @@ class YoukuDetailSpider(scrapy.Spider):
     def parse_tv_parts(self, response):
         resource = response.meta.get('resource')
         parts = response.meta.get('parts')
+        parts_show_id = response.meta.get('parts_show_id')
         result = json.loads(re.match(ur'[\s\S]+callback\((.*)\)', response.text).group(1))
         if not result.get('error'):
             self.crawl_parts_num = self.crawl_parts_num + 1
