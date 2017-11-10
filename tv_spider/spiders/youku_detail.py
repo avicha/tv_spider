@@ -153,7 +153,7 @@ class YoukuDetailSpider(scrapy.Spider):
         else:
             self.error.append('parts error: %s' % response.url)
             resource.update({'parts': parts})
-            return resource
+            yield resource
 
     def closed(self, reason):
         self.client.close()
