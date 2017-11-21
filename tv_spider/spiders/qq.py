@@ -18,14 +18,14 @@ class QQSpider(scrapy.Spider):
         self.tv_num = 0
         self.client = client
         self.db = db
-        yield scrapy.Request('http://v.qq.com/x/list/tv?feature=-1&iyear=1&sort=19&iarea=-1&offset=0', self.parse_tv_list)
+        self.page_num = 1
+        self.page_size = 30
+        yield scrapy.Request('http://v.qq.com/x/list/tv?feature=-1&iyear=1&sort=19&iarea=-1&offset=%s' % ((self.page_num - 1)*self.page_size), self.parse_tv_list)
 
     def parse_tv_list(self, response):
-        for href in response.css('.mod_pages .page_num::attr(href)'):
-            yield response.follow(href, callback=self.parse_tv_list)
         for li in response.css('.figures_list .list_item'):
             self.tv_num = self.tv_num + 1
-            video_id = li.css('.figure::attr(data-float)').extract_first()
+            album_id = li.css('.figure::attr(data-float)').extract_first()
             thumb_src = li.css('.figure img::attr(r-lazyload)').extract_first()
             if thumb_src and not ('http:' in thumb_src):
                 thumb_src = 'http:' + thumb_src
@@ -44,7 +44,7 @@ class QQSpider(scrapy.Spider):
                     status = tv_status.UNKNOWN
             else:
                 status = tv_status.UNKNOWN
-            if not video_id:
+            if not album_id:
                 status = tv_status.UNAVAILABLE
             is_vip = True if mark_v == 'VIP' else False
             actors = []
@@ -52,10 +52,9 @@ class QQSpider(scrapy.Spider):
                 actors.append(x.xpath('./@title').extract_first())
             tv = {
                 'name': name,
-                'category': 'tv',
                 'resource': {
                     'source': video_source.QQ,
-                    'id': video_id,
+                    'album_id': album_id,
                     'folder': thumb_src,
                     'actors': actors,
                     'status': status,
@@ -63,6 +62,9 @@ class QQSpider(scrapy.Spider):
                 }
             }
             yield tv
+        if len(response.css('.figures_list .list_item')):
+            self.page_num = self.page_num + 1
+            yield scrapy.Request('http://v.qq.com/x/list/tv?feature=-1&iyear=1&sort=19&iarea=-1&offset=%s' % ((self.page_num - 1)*self.page_size), self.parse_tv_list)
 
     def closed(self, reason):
         self.client.close()

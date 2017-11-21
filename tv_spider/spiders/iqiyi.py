@@ -39,7 +39,7 @@ class IqiyiSpider(scrapy.Spider):
                 alias = albumDocInfo.get('albumAlias').split(';') if albumDocInfo.get('albumAlias') else []
                 albumLink = albumDocInfo.get('albumLink')
                 # 视频id
-                video_id = re.match(ur'http:\/\/www\.iqiyi\.com\/(\S+)\.html', albumLink).group(1)
+                album_id = re.match(ur'http:\/\/www\.iqiyi\.com\/(\S+)\.html', albumLink).group(1)
                 # 缩略图
                 thumb_src = albumDocInfo.get('albumHImage')
                 # 发布日期
@@ -57,7 +57,7 @@ class IqiyiSpider(scrapy.Spider):
                 # 导演
                 director = ','.join(albumDocInfo.get('director').split(';')) if albumDocInfo.get('director') else ''
                 # 地区
-                region = albumDocInfo.get('region')
+                region = albumDocInfo.get('region', '')
                 # 类型
                 types = albumDocInfo.get('video_lib_meta').get('category', [])
                 # 播放数
@@ -73,17 +73,16 @@ class IqiyiSpider(scrapy.Spider):
                 # 电视剧状态
                 status = tv_status.COMPLETED if current_part == part_count else tv_status.UPDATING
                 # 是否VIP才能看
-                is_vip = albumDocInfo.get('is_third_party_vip')
+                is_vip = True if albumDocInfo.get('isPurchase') else False
                 # 分集剧情需要id
-                parts_show_id = albumDocInfo.get('albumId')
+                iqiyi_album_id = albumDocInfo.get('albumId')
                 # 分集剧情，http://mixer.video.iqiyi.com/jp/mixin/videos/avlist?albumId=213681201&page=1&size=100
                 tv = {
                     'name': name,
-                    'category': 'tv',
                     'resource': {
                         'has_crawl_detail': True,
                         'source': video_source.IQIYI,
-                        'id': video_id,
+                        'album_id': album_id,
                         'alias': alias,
                         'publish_date': publish_date,
                         'folder': thumb_src,
@@ -100,32 +99,44 @@ class IqiyiSpider(scrapy.Spider):
                         'update_notify_desc': update_notify_desc,
                         'status': status,
                         'is_vip': is_vip
-                    }
+                    },
+                    'videos': []
                 }
-                if parts_show_id:
-                    yield scrapy.Request('http://mixer.video.iqiyi.com/jp/mixin/videos/avlist?albumId=%s&page=1&size=200' % parts_show_id, self.parse_tv_parts, meta={'tv': tv})
-                else:
-                    yield tv
+                video_page_num = 1
+                video_page_size = 50
+                yield scrapy.Request('http://cache.video.iqiyi.com/jp/avlist/%s/%s/%s/' % (iqiyi_album_id, video_page_num, video_page_size), self.parse_tv_parts, meta={'tv': tv, 'video_page_num': video_page_num, 'video_page_size': video_page_size})
+
             if self.page_num * self.page_size < result.get('data').get('result_num'):
                 self.page_num = self.page_num + 1
                 yield scrapy.Request('http://search.video.iqiyi.com/o?pageNum=%s&pageSize=%s&mode=11&ctgName=%s&type=list&if=html5&pos=1&access_play_control_platform=15&site=iqiyi' % (self.page_num, self.page_size, self.cat_name), self.parse_tv_list)
 
     def parse_tv_parts(self, response):
         tv = response.meta.get('tv')
-        parts = []
+        video_page_num = response.meta.get('video_page_num')
+        video_page_size = response.meta.get('video_page_size')
+        videos = tv.get('videos')
         result = json.loads(re.match(r'var\stvInfoJs=(\{.*\})', response.text).group(1))
-        for index, item in enumerate(result.get('mixinVideos')):
-            parts.append({
-                'index': index + 1,
-                'video_id': re.match(r'http:\/\/www\.iqiyi\.com\/(\S+)\.html', item.get('url')).group(1),
-                'thumb': item.get('qualityImageUrl') or item.get('videoImageUrl'),
-                'duration': item.get('duration'),
-                'status': video_status.PREVIEW if item.get('solo') else (video_status.VIP if item.get('isPurchase') else video_status.FREE),
-                'brief': item.get('subtitle'),
-                'desc': item.get('description')
-            })
-        tv.update({'parts': parts})
-        return tv
+        if result.get('code') == 'A00000':
+            for item in result.get('data').get('vlist'):
+                thumb = item.get('vpic')
+                if thumb:
+                    thumb = thumb[0:-4] + '_320_180' + thumb[-4::]
+                video = {
+                    'album_id': tv.get('resource').get('album_id'),
+                    'source': tv.get('resource').get('source'),
+                    'sequence': item.get('pd'),
+                    'video_id': re.match(r'http:\/\/www\.iqiyi\.com\/(\S+)\.html', item.get('vurl')).group(1),
+                    'thumb': thumb,
+                    'duration': item.get('timeLength'),
+                    'status': video_status.PREVIEW if item.get('type') == '0' else (video_status.VIP if item.get('purType') == 2 else video_status.FREE),
+                    'brief': item.get('vt') or item.get('shortTitle'),
+                    'desc': item.get('desc')
+                }
+                videos.append(video)
+            if video_page_num * video_page_size < result.get('allNum'):
+                video_page_num = video_page_num + 1
+                yield scrapy.Request('http://cache.video.iqiyi.com/jp/avlist/%s/%s/%s/' % (iqiyi_album_id, video_page_num, video_page_size), self.parse_tv_parts, meta={'tv': tv, 'video_page_num': video_page_num, 'video_page_size': video_page_size})
+        yield tv
 
     def closed(self, reason):
         self.client.close()

@@ -22,25 +22,26 @@ class QQDetailSpider(scrapy.Spider):
         self.error = []
         self.crawl_detail_num = 0
         self.crawl_parts_num = 0
-        q = db.videos.find({'resources': {'$elemMatch': {'source': video_source.QQ, 'has_crawl_detail': False, 'status': {'$not': {'$eq': tv_status.UNAVAILABLE}}}}})
+        q = db.tvs.find({'resources': {'$elemMatch': {'source': video_source.QQ, 'has_crawl_detail': False, 'status': {'$not': {'$eq': tv_status.UNAVAILABLE}}}}}).limit(100)
         for o in q:
             resource = filter(lambda x: x.get('source') == video_source.QQ, o.get('resources'))[0]
-            yield scrapy.Request('https://v.qq.com/x/cover/%s.html' % resource.get('id'), self.parse_tv_detail, meta={'resource': resource, 'handle_httpstatus_all': True})
+            yield scrapy.Request('https://v.qq.com/x/cover/%s.html' % resource.get('album_id'), self.parse_tv_detail, meta={'resource': resource, 'handle_httpstatus_all': True})
 
     def parse_tv_detail(self, response):
         if response.status >= 200 and response.status < 300:
             try:
+                resource = response.meta.get('resource')
                 cover_info = json.loads(re.match(r'[\s\S]+COVER_INFO\s=\s(.*)', response.text).group(1))
                 # 别名
                 alias = cover_info.get('alias')
                 # 发布日期
                 publish_date = cover_info.get('publish_date')
                 # 最新一集
-                current_part = int(cover_info.get('current_num')) if cover_info.get('current_num') else 0
+                current_part = int(cover_info.get('current_num')) if cover_info.get('current_num') else len(cover_info.get('nomal_ids'))
                 # 总集数
                 part_count = int(re.match(r'\d+', cover_info.get('episode_all')).group(0)) if cover_info.get('episode_all') else 0
                 # 播放备注
-                update_notify_desc = cover_info.get('update_notify_desc')
+                update_notify_desc = cover_info.get('update_notify_desc', '')
                 # 得分
                 score = float(cover_info.get('score').get('score')) if cover_info.get('score') else 0
                 # 演员表
@@ -70,9 +71,9 @@ class QQDetailSpider(scrapy.Spider):
                             'role': role
                         })
                 # 导演
-                director = ','.join(cover_info.get('director')) if cover_info.get('director') else None
+                director = ','.join(cover_info.get('director')) if cover_info.get('director') else ''
                 # 地区
-                region = cover_info.get('area_name')
+                region = cover_info.get('area_name', '')
                 # 类型
                 types = cover_info.get('subtype')
                 # 播放数
@@ -80,19 +81,20 @@ class QQDetailSpider(scrapy.Spider):
                 # 简介
                 desc = cover_info.get('description')
                 # 分集详情id，https://node.video.qq.com/x/api/cut?ids=6kad60dktxie6cp_2_1
-                plot_id = json.loads(cover_info.get('plot_id')) if cover_info.get('plot_id') else {}
-                parts_show_id = ','.join(plot_id.values())
-                parts = map(lambda x: {
-                    'id': plot_id.get(x.get('V')),
-                    'index': x.get('E'),
+                # plot_id = json.loads(cover_info.get('plot_id')) if cover_info.get('plot_id') else {}
+                # parts_show_id = ','.join(plot_id.values())
+                videos = map(lambda x: {
+                    # 'id': plot_id.get(x.get('V')),
+                    'album_id': resource.get('album_id'),
+                    'source': resource.get('source'),
+                    'sequence': x.get('E'),
                     'video_id': x.get('V'),
                     'thumb': None,
                     'duration': 0,
                     'status': video_status.PREVIEW if x.get('F') == 0 else (video_status.VIP if (x.get('F') == 7 or x.get('F') == 5) else (video_status.FREE if x.get('F') == 2 else video_status.UNKNOWN)),
-                    'brief': None,
+                    'brief': '',
                     'desc': ''
                 }, cover_info.get('nomal_ids'))
-                resource = response.meta.get('resource')
                 resource.update({
                     'has_crawl_detail': True,
                     'alias': alias,
@@ -107,17 +109,18 @@ class QQDetailSpider(scrapy.Spider):
                     'desc': desc,
                     'current_part': current_part,
                     'part_count': part_count,
-                    'update_notify_desc': update_notify_desc
+                    'update_notify_desc': update_notify_desc,
+                    'videos': videos
                 })
-                response.meta.update({'parts': parts})
                 self.crawl_detail_num = self.crawl_detail_num + 1
-                if parts_show_id:
-                    yield scrapy.Request('https://node.video.qq.com/x/api/cut?ids=%s' % parts_show_id, self.parse_tv_parts, meta=response.meta)
-                else:
-                    for part in parts:
-                        del part['id']
-                    resource.update({'parts': parts})
-                    yield resource
+                # if parts_show_id:
+                #     response.meta.update({'videos': videos})
+                #     yield scrapy.Request('https://node.video.qq.com/x/api/cut?ids=%s' % parts_show_id, self.parse_tv_parts, meta=response.meta)
+                # else:
+                #     for video in videos:
+                #         del video['id']
+                #     resource.update({'videos': videos})
+                yield resource
             except Exception as e:
                 self.error.append("Exception %s" % response.url)
                 resource = response.meta.get('resource')
@@ -131,20 +134,20 @@ class QQDetailSpider(scrapy.Spider):
 
     def parse_tv_parts(self, response):
         resource = response.meta.get('resource')
-        parts = response.meta.get('parts')
+        videos = response.meta.get('videos')
         result = json.loads(response.text)
         self.crawl_parts_num = self.crawl_parts_num + 1
         for o in result:
             part_id = o.get('id')
             desc = o.get('jsonData', {}).get('episodes_desc')
-            part = filter(lambda x: x.get('id') == part_id, parts)
+            part = filter(lambda x: x.get('id') == part_id, videos)
             if len(part):
                 part = part[0]
                 part.update({
                     'desc': desc
                 })
                 del part['id']
-        resource.update({'parts': parts})
+        resource.update({'videos': videos})
         return resource
 
     def closed(self, reason):

@@ -15,16 +15,16 @@ import tv_spider.const.tags as tags_enum
 def format_resource(resource):
     publish_date = resource.get('publish_date')
     if (not publish_date) or (not re.match(r'^\d{4}-\d{2}-\d{2}$', publish_date)):
-        resource.update({'publish_date': None})
+        resource.update({'publish_date': ''})
     region = resource.get('region')
-    if region == '' or region == 'unknown':
-        resource.update({'region': None})
+    if region == None:
+        resource.update({'region': ''})
     if resource.get('desc') == None:
         resource.update({'desc': ''})
-    if resource.get('director') == '':
-        resource.update({'director': None})
-    if resource.get('update_notify_desc') == '':
-        resource.update({'update_notify_desc': None})
+    if resource.get('director') == None:
+        resource.update({'director': ''})
+    if resource.get('update_notify_desc') == None:
+        resource.update({'update_notify_desc': ''})
     return resource
 
 
@@ -85,12 +85,12 @@ class TvSpiderPipeline(object):
     def process_item(self, item, spider):
         resource = format_resource(item.get('resource'))
         tags = get_tags(resource)
-        video_id = resource.get('id')
+        album_id = resource.get('album_id')
         source = resource.get('source')
-        parts = item.get('parts')
+        videos = item.get('videos')
         has_crawl_detail = resource.get('has_crawl_detail', False)
         now = int(round(time.time()*1000))
-        q = spider.db.videos.find({'name': item.get('name'), 'category': item.get('category')})
+        q = spider.db.tvs.find({'name': item.get('name')})
         is_exists = False
         exists_tv = None
         for o in q:
@@ -104,14 +104,15 @@ class TvSpiderPipeline(object):
                 if actor_same:
                     is_exists = True
                     exists_tv = o
-        if parts:
-            del item['parts']
-            spider.db.video_parts.update_one({'id': video_id, 'source': source}, {'$set': {'parts': parts}}, upsert=True)
+        if videos:
+            del item['videos']
+            for video in videos:
+                spider.db.videos.update_one({'video_id': video.get('video_id'), 'source': source}, {'$set': video}, upsert=True)
         if not is_exists:
             resource.update({'created_at': now, 'updated_at': now, 'deleted_at': None, 'has_crawl_detail': has_crawl_detail})
             item.update({'resources': [resource], 'tags': tags})
             del item['resource']
-            spider.db.videos.insert_one(item)
+            spider.db.tvs.insert_one(item)
             return item
         else:
             exist_resources = exists_tv.get('resources')
@@ -120,10 +121,10 @@ class TvSpiderPipeline(object):
                 exist_resource = exist_resource[0]
                 resource.update({'updated_at': now})
                 exist_resource.update(resource)
-                spider.db.videos.update_one({'_id': ObjectId(exists_tv.get('_id')), 'resources.source': resource.get('source')}, {'$set': {'resources.$': exist_resource}, '$addToSet': {'tags': {'$each': tags}}})
+                spider.db.tvs.update_one({'_id': ObjectId(exists_tv.get('_id')), 'resources.source': resource.get('source')}, {'$set': {'resources.$': exist_resource}, '$addToSet': {'tags': {'$each': tags}}})
             else:
                 resource.update({'created_at': now, 'updated_at': now, 'deleted_at': None, 'has_crawl_detail': has_crawl_detail})
-                spider.db.videos.update_one({'_id': ObjectId(exists_tv.get('_id'))}, {'$addToSet': {'resources': resource, 'tags': {'$each': tags}}})
+                spider.db.tvs.update_one({'_id': ObjectId(exists_tv.get('_id'))}, {'$addToSet': {'resources': resource, 'tags': {'$each': tags}}})
             return item
 
 
@@ -133,10 +134,11 @@ class TvDetailSpiderPipeline(object):
         item = format_resource(resource)
         tags = get_tags(item)
         source = item.get('source')
-        video_id = item.get('id')
-        parts = item.get('parts')
-        if parts:
-            del item['parts']
-            spider.db.video_parts.update_one({'id': video_id, 'source': source}, {'$set': {'parts': parts}}, upsert=True)
-        spider.db.videos.update_one({'resources': {'$elemMatch': {'source': source, 'id': video_id}}}, {'$set': {'resources.$': item}, '$addToSet': {'tags': {'$each': tags}}})
+        album_id = item.get('album_id')
+        videos = item.get('videos')
+        if videos:
+            del item['videos']
+            for video in videos:
+                spider.db.videos.update_one({'video_id': video.get('video_id'), 'source': source}, {'$set': video}, upsert=True)
+        spider.db.tvs.update_one({'resources': {'$elemMatch': {'source': source, 'album_id': album_id}}}, {'$set': {'resources.$': item}, '$addToSet': {'tags': {'$each': tags}}})
         return item

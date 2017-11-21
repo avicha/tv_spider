@@ -23,25 +23,28 @@ class YoukuDetailSpider(scrapy.Spider):
         self.error = []
         self.crawl_detail_num = 0
         self.crawl_parts_num = 0
-        q = db.videos.find({'resources': {'$elemMatch': {'source': video_source.YOUKU, 'has_crawl_detail': False, 'status': {'$not': {'$eq': tv_status.UNAVAILABLE}}}}})
+        q = db.tvs.find({'resources': {'$elemMatch': {'source': video_source.YOUKU, 'has_crawl_detail': False, 'status': {'$not': {'$eq': tv_status.UNAVAILABLE}}}}})
         for o in q:
             resource = filter(lambda x: x.get('source') == video_source.YOUKU, o.get('resources'))[0]
-            yield scrapy.Request('http://v.youku.com/v_show/id_%s.html' % resource.get('id'), self.parse_tv_detail_link, meta={'resource': resource, 'handle_httpstatus_all': True})
+            yield scrapy.Request('http://v.youku.com/v_show/id_%s.html' % resource.get('album_id'), self.parse_tv_detail_link, meta={'resource': resource, 'handle_httpstatus_all': True})
 
     def parse_tv_detail_link(self, response):
+        resource = response.meta.get('resource')
         desc_link = response.css('.desc-link::attr(href)').extract_first()
         if response.status >= 200 and response.status < 300 and desc_link:
             self.crawl_detail_num = self.crawl_detail_num + 1
-            parts = map(lambda x: {
-                'index': int(x.css('.sn_num::text').extract_first()),
+            videos = map(lambda x: {
+                'album_id': resource.get('album_id'),
+                'source': video_source.YOUKU,
                 'video_id': x.css('::attr(item-id)').re_first(r'item_(\S+)'),
+                'sequence': int(x.css('.sn_num::text').extract_first()),
                 'thumb': None,
                 'duration': 0,
                 'status': video_status.VIP if x.css('.sn_iscrown').extract_first() else (video_status.PREVIEW if x.css('.sn_ispreview').extract_first() else video_status.FREE),
-                'brief': None,
-                'desc': None
+                'brief': '',
+                'desc': ''
             }, response.css('.tvlists .item[name="tvlist"]'))
-            response.meta.update({'parts': parts})
+            response.meta.update({'videos': videos})
             yield scrapy.Request('http:%s' % desc_link, self.parse_tv_detail, meta=response.meta)
         else:
             self.error.append('not ok %s, status code: %s' % (response.url, response.status))
@@ -80,7 +83,7 @@ class YoukuDetailSpider(scrapy.Spider):
             director = director_li.css('a::attr(title)').extract_first() or ''
             # 地区
             region_li = response.xpath("//li[contains(., '%s')]" % u'地区：')
-            region = region_li.css('a::text').extract_first() or 'unknown'
+            region = region_li.css('a::text').extract_first() or ''
             # 类型
             types = []
             types_li = response.xpath("//li[contains(., '%s')]" % u'类型：')
@@ -124,7 +127,7 @@ class YoukuDetailSpider(scrapy.Spider):
 
     def parse_tv_parts(self, response):
         resource = response.meta.get('resource')
-        parts = response.meta.get('parts')
+        videos = response.meta.get('videos')
         _reload = response.meta.get('reload')
         parts_show_id = response.meta.get('parts_show_id')
         result = json.loads(re.match(ur'[\s\S]+callback\((.*)\)', response.text).group(1))
@@ -142,10 +145,10 @@ class YoukuDetailSpider(scrapy.Spider):
                 time_parts = duration.split(':')
                 duration = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
                 desc = item.select_one('.item-intro').string
-                part = filter(lambda x: x.get('video_id') == video_id, parts)
-                if len(part):
-                    part = part[0]
-                    part.update({
+                video = filter(lambda x: x.get('video_id') == video_id, videos)
+                if len(video):
+                    video = video[0]
+                    video.update({
                         'thumb': thumb,
                         'duration': duration,
                         'desc': desc
@@ -155,8 +158,7 @@ class YoukuDetailSpider(scrapy.Spider):
             yield scrapy.Request('http://list.youku.com/show/point?id=%s&stage=reload_%s&callback=callback' % (parts_show_id, _reload), self.parse_tv_parts, meta=response.meta)
         else:
             self.crawl_parts_num = self.crawl_parts_num + 1
-            self.error.append('parts error: %s' % response.url)
-            resource.update({'parts': parts})
+            resource.update({'videos': videos})
             yield resource
 
     def closed(self, reason):

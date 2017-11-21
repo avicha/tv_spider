@@ -27,7 +27,7 @@ class YoukuSpider(scrapy.Spider):
             yield response.follow(href, callback=self.parse_tv_list)
         for li in response.css('.box-series .yk-col4'):
             self.tv_num = self.tv_num + 1
-            video_id = li.css('.p-thumb a').xpath('./@href').re_first(r'v\.youku\.com\/v_show\/id_(\S+)\.html')
+            album_id = li.css('.p-thumb a').xpath('./@href').re_first(r'v\.youku\.com\/v_show\/id_(\S+)\.html')
             thumb_src = li.css('.quic::attr(src)').extract_first()
             name = li.css('.p-thumb a::attr(title)').extract_first()
             info = li.css('.status span span').xpath('./text()').extract_first()
@@ -39,19 +39,18 @@ class YoukuSpider(scrapy.Spider):
                 status = tv_status.COMPLETED
             else:
                 status = tv_status.UNKNOWN
-            if not video_id:
+            if not album_id:
                 status = tv_status.UNAVAILABLE
             is_vip = True if li.css('.vip-free').extract_first() else False
             actors = []
             for x in li.css('.actor a'):
                 actors.append(x.xpath('./@title').extract_first())
-            print(video_id, thumb_src, name, info, is_vip, actors)
+            print(album_id, thumb_src, name, info, is_vip, actors)
             tv = {
                 'name': name,
-                'category': 'tv',
                 'resource': {
                     'source': video_source.YOUKU,
-                    'id': video_id,
+                    'album_id': album_id,
                     'folder': thumb_src,
                     'actors': actors,
                     'status': status,
