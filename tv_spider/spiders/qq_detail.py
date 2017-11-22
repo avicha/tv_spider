@@ -22,7 +22,7 @@ class QQDetailSpider(scrapy.Spider):
         self.error = []
         self.crawl_detail_num = 0
         self.crawl_parts_num = 0
-        q = db.tvs.find({'resources': {'$elemMatch': {'source': video_source.QQ, 'has_crawl_detail': False, 'status': {'$not': {'$eq': tv_status.UNAVAILABLE}}}}}).limit(100)
+        q = db.tvs.find({'resources': {'$elemMatch': {'source': video_source.QQ, 'has_crawl_detail': False, 'status': {'$not': {'$eq': tv_status.UNAVAILABLE}}}}})
         for o in q:
             resource = filter(lambda x: x.get('source') == video_source.QQ, o.get('resources'))[0]
             yield scrapy.Request('https://v.qq.com/x/cover/%s.html' % resource.get('album_id'), self.parse_tv_detail, meta={'resource': resource, 'handle_httpstatus_all': True})
