@@ -1,3 +1,4 @@
 *.pyc
 dump
 logs
+tv_spider/mongodb_config.py
